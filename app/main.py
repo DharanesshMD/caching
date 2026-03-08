@@ -75,10 +75,15 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    from app.routers import server_demo
+    from app.routers import server_demo, browser_demo, cdn_demo, db_demo, in_memory_demo
 
     app = FastAPI(lifespan=lifespan)
     app.include_router(server_demo.router)
+    # Register new demo routers
+    app.include_router(browser_demo.router)
+    app.include_router(cdn_demo.router)
+    app.include_router(db_demo.router)
+    app.include_router(in_memory_demo.router)
     return app
 
 

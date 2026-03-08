@@ -1,0 +1,280 @@
+From e201842380493ca00b34db98f5356a8a845c2393 Mon Sep 17 00:00:00 2001
+From: Claude Code <claude-code@example.com>
+Date: Thu, 5 Mar 2026 12:54:25 +0000
+Subject: [PATCH] feat(web): add FastAPI demo app and server cache demo\n\n-
+ app/main.py: app factory with lifespan-managed Redis client\n- app/deps.py:
+ DI helpers for redis and RedisServerCache\n- app/routers/server_demo.py: GET
+ /demo/server demo route\n- app/templates: base & demo/server.html\n-
+ tests/unit/test_server_demo.py: basic smoke test using
+ TestClient\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+---
+ app/deps.py                    | 23 +++++++++
+ app/main.py                    | 86 ++++++++++++++++++++++++++++++++++
+ app/routers/server_demo.py     | 54 +++++++++++++++++++++
+ app/templates/base.html        | 18 +++++++
+ app/templates/demo/server.html | 14 ++++++
+ tests/unit/test_server_demo.py | 21 +++++++++
+ 6 files changed, 216 insertions(+)
+ create mode 100644 app/deps.py
+ create mode 100644 app/main.py
+ create mode 100644 app/routers/server_demo.py
+ create mode 100644 app/templates/base.html
+ create mode 100644 app/templates/demo/server.html
+ create mode 100644 tests/unit/test_server_demo.py
+
+diff --git a/app/deps.py b/app/deps.py
+new file mode 100644
+index 0000000..fac0fac
+--- /dev/null
++++ b/app/deps.py
+@@ -0,0 +1,23 @@
++from __future__ import annotations
++from typing import AsyncIterator
++
++from fastapi import Depends, Request
++
++from app.cache.server_cache import RedisServerCache
++from redis.asyncio import Redis
++
++
++async def get_redis(request: Request) -> Redis:
++    """Return the redis client stored on app.state by app.main lifespan."""
++    return request.app.state.redis
++
++
++async def get_cache(redis: Redis = Depends(get_redis)) -> AsyncIterator[RedisServerCache]:
++    """Provide a RedisServerCache instance bound to the app's Redis client.
++
++    Yielding a fresh RedisServerCache keeps the dependency simple and avoids
++    storing additional globals. The cache is lightweight and simply wraps the
++    redis client.
++    """
++    cache = RedisServerCache(redis=redis, default_ttl=300)
++    yield cache
+diff --git a/app/main.py b/app/main.py
+new file mode 100644
+index 0000000..088de57
+--- /dev/null
++++ b/app/main.py
+@@ -0,0 +1,86 @@
++from __future__ import annotations
++import os
++from contextlib import asynccontextmanager
++from typing import Any
++
++from fastapi import FastAPI
++from fastapi.templating import Jinja2Templates
++
++try:
++    from redis.asyncio import Redis
++except Exception:  # pragma: no cover - if redis isn't installed, tests still run with DummyRedis
++    Redis = None  # type: ignore
++
++
++class _DummyRedis:
++    """Simple async dict-backed Redis-like object used when a real Redis isn't available.
++
++    This mirrors the minimal async interface used in the project: get, set, delete.
++    """
++
++    def __init__(self) -> None:
++        self.store: dict[str, str] = {}
++
++    async def get(self, key: str):
++        return self.store.get(key)
++
++    async def set(self, key: str, value: str, ex: int | None = None):
++        self.store[key] = value
++
++    async def delete(self, key: str):
++        self.store.pop(key, None)
++
++
++templates = Jinja2Templates(directory="app/templates")
++
++
++@asynccontextmanager
++async def lifespan(app: FastAPI):
++    """Create a Redis client if available and reachable, otherwise fall back to DummyRedis.
++
++    The real redis.asyncio.Redis client opens connections lazily; we attempt a ping to
++    verify availability and otherwise use a dummy in-memory store so the demo still works
++    in development and in CI where Redis may not be running.
++    """
++    redis_client: Any = None
++    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++
++    if Redis is not None:
++        try:
++            redis_client = Redis.from_url(redis_url, decode_responses=True)
++            # Try a quick ping: if it fails, we'll use DummyRedis instead
++            await redis_client.ping()
++            app.state.redis = redis_client
++        except Exception:
++            # Cannot reach a real Redis instance — use dummy
++            if redis_client is not None:
++                try:
++                    await redis_client.close()
++                except Exception:
++                    pass
++            app.state.redis = _DummyRedis()
++    else:
++        app.state.redis = _DummyRedis()
++
++    try:
++        yield
++    finally:
++        # Close real redis client if we created one
++        client = getattr(app.state, "redis", None)
++        if client is not None and Redis is not None and isinstance(client, Redis):
++            try:
++                await client.close()
++            except Exception:
++                pass
++
++
++def create_app() -> FastAPI:
++    from app.routers import server_demo
++
++    app = FastAPI(lifespan=lifespan)
++    app.include_router(server_demo.router)
++    return app
++
++
++# Expose a module-level app for uvicorn convenience
++app = create_app()
+diff --git a/app/routers/server_demo.py b/app/routers/server_demo.py
+new file mode 100644
+index 0000000..07479e2
+--- /dev/null
++++ b/app/routers/server_demo.py
+@@ -0,0 +1,54 @@
++from __future__ import annotations
++import asyncio
++from typing import Any
++
++from fastapi import APIRouter, Depends, Request
++from fastapi.responses import HTMLResponse
++from fastapi.templating import Jinja2Templates
++
++from app.cache.base import CacheResult
++from app.middleware import metrics
++from app.deps import get_cache
++
++router = APIRouter()
++templates = Jinja2Templates(directory="app/templates")
++
++
++@router.get("/demo/server", response_class=HTMLResponse)
++async def server_demo(request: Request, cache=Depends(get_cache)) -> Any:
++    """Demo route that exercises the server Redis cache.
++
++    Flow:
++    - Try to get key from cache
++    - If miss, simulate an origin fetch (async sleep + payload)
++    - Set cache and render template with CacheResult
++    - Add an X-Cache header indicating HIT/MISS
++    """
++    key = "demo:server:time"
++
++    try:
++        r: CacheResult[Any] = await cache.get(key)
++    except Exception:
++        # If Redis is unavailable or the cache raises, treat as miss but keep working
++        r = CacheResult(value=None, hit=False, latency_ms=0.0)
++
++    if not r.hit:
++        # Simulate slow origin fetch
++        await asyncio.sleep(0.01)
++        payload = {"time": asyncio.get_event_loop().time()}
++        try:
++            await cache.set(key, payload)
++        except Exception:
++            # swallow errors so demo still renders
++            pass
++        # record miss metric
++        metrics.log_miss("server", key)
++        # create a CacheResult representing the post-fetch state
++        r = CacheResult(value=payload, hit=False, latency_ms=r.latency_ms)
++    else:
++        metrics.log_hit("server", key)
++
++    headers = {"X-Cache": "HIT" if r.hit else "MISS"}
++    return templates.TemplateResponse(
++        "demo/server.html", {"request": request, "cache_result": r}, headers=headers
++    )
+diff --git a/app/templates/base.html b/app/templates/base.html
+new file mode 100644
+index 0000000..37ae970
+--- /dev/null
++++ b/app/templates/base.html
+@@ -0,0 +1,18 @@
++<!doctype html>
++<html>
++  <head>
++    <meta charset="utf-8" />
++    <title>Caching Demo</title>
++    <style>
++      .badge { padding: 6px 10px; border-radius: 4px; display: inline-block; }
++      .badge-hit { background: #e6ffed; color: #0a662a; }
++      .badge-miss { background: #fff2f0; color: #7a1a1a; }
++      body { font-family: system-ui, sans-serif; padding: 24px; }
++      pre { background: #f6f8fa; padding: 12px; border-radius: 6px; }
++    </style>
++  </head>
++  <body>
++    <h1>Cache Demos</h1>
++    {% block content %}{% endblock %}
++  </body>
++</html>
+diff --git a/app/templates/demo/server.html b/app/templates/demo/server.html
+new file mode 100644
+index 0000000..6a115af
+--- /dev/null
++++ b/app/templates/demo/server.html
+@@ -0,0 +1,14 @@
++{% extends "base.html" %}
++
++{% block content %}
++  <h2>Server cache demo</h2>
++
++  {% if cache_result.hit %}
++    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
++  {% else %}
++    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
++  {% endif %}
++
++  <h3>Payload</h3>
++  <pre>{{ cache_result.value }}</pre>
++{% endblock %}
+diff --git a/tests/unit/test_server_demo.py b/tests/unit/test_server_demo.py
+new file mode 100644
+index 0000000..3067eab
+--- /dev/null
++++ b/tests/unit/test_server_demo.py
+@@ -0,0 +1,21 @@
++import pytest
++
++from fastapi.testclient import TestClient
++
++from app.main import app
++
++
++@pytest.fixture
++def client():
++    return TestClient(app)
++
++
++def test_demo_page_renders(client):
++    resp = client.get("/demo/server")
++    assert resp.status_code == 200
++    text = resp.text
++    assert "Server cache demo" in text
++    # Should include either HIT or MISS badge text
++    assert "CACHE HIT" in text or "CACHE MISS" in text
++    # X-Cache header should be present
++    assert "X-Cache" in resp.headers
+-- 
+2.43.0
+
