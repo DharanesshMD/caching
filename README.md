@@ -243,6 +243,6 @@ ruff check . && mypy app/ && pytest tests/unit/
 4. Commit using Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`
 5. Submit a pull request
 
-## License
+## System Design
 
-MIT License
+This comprehensive caching system design was created by Dharanessh MD. The architecture, implementation patterns, and educational approach were designed specifically for teaching caching concepts through interactive demonstrations.
