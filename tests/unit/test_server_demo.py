@@ -7,7 +7,9 @@ from app.main import app
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    # Ensure app lifespan events run so app.state.redis is initialized
+    with TestClient(app) as client:
+        yield client
 
 
 def test_demo_page_renders(client):
