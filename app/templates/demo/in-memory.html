@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <h2>Server cache demo</h2>
+  <h2>In-memory cache demo</h2>
 
   <div class="controls">
     <div class="toggle">
       <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="Server-side cache stored in Redis (simulated when no Redis present)">(?)</span>
+      <span class="tooltip" title="In-process memory cache with TTL">(?)</span>
     </div>
     <div>
-      <button onclick="toggleCode('server-code')">Show me the code</button>
+      <button onclick="toggleCode('mem-code')">Show me the code</button>
     </div>
   </div>
 
@@ -23,20 +23,13 @@
   <pre>{{ cache_result.value }}</pre>
 
   <div class="inspector">
-    <strong>Cache key:</strong> demo:server:time
+    <strong>Cache key:</strong> demo:memory:time
   </div>
 
-  <div id="server-code" class="code-box code-panel">
-<pre>{% raw %}# app/routers/server_demo.py (excerpt)
-key = "demo:server:time"
-try:
-    r = await cache.get(key)
-except Exception:
-    r = CacheResult(value=None, hit=False, latency_ms=0.0)
-if not r.hit:
-    await asyncio.sleep(0.01)
-    payload = {"time": asyncio.get_event_loop().time()}
-    await cache.set(key, payload)
+  <div id="mem-code" class="code-box code-panel">
+<pre>{% raw %}# app/cache/in_memory.py (excerpt)
+# Stores JSON-serialized values with expires_at and cleanup
+await cache.set(key, payload)
 {% endraw %}</pre>
   </div>
 {% endblock %}

@@ -4,15 +4,65 @@
     <meta charset="utf-8" />
     <title>Caching Demo</title>
     <style>
+      body { font-family: system-ui, sans-serif; margin: 0; }
+      .app { display: flex; min-height: 100vh; }
+      .sidebar { width: 220px; background: #0f172a; color: #fff; padding: 20px; box-sizing: border-box;}
+      .sidebar a { color: #cbd5e1; text-decoration: none; display:block; padding:8px 0;}
+      .sidebar a.active { color: #fff; font-weight: 600; }
+      main { flex:1; padding: 24px; box-sizing: border-box; }
       .badge { padding: 6px 10px; border-radius: 4px; display: inline-block; }
       .badge-hit { background: #e6ffed; color: #0a662a; }
       .badge-miss { background: #fff2f0; color: #7a1a1a; }
-      body { font-family: system-ui, sans-serif; padding: 24px; }
-      pre { background: #f6f8fa; padding: 12px; border-radius: 6px; }
+      pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow:auto;}
+      .controls { margin: 12px 0; display:flex; gap:12px; align-items:center;}
+      .toggle { display:flex; align-items:center; gap:8px;}
+      .tooltip { cursor: help; border-bottom: 1px dotted #666; }
+      .code-panel { margin-top:12px; }
+      .code-box { display:none; background:#0b1220;color:#e6edf3;padding:12px;border-radius:6px;white-space:pre-wrap; }
+      .inspector { margin-top:8px; font-size:0.9rem; color:#333; }
+      button { cursor:pointer;}
     </style>
+    <script>
+      function toggleCache(el) {
+        const state = el.dataset.state === 'on' ? 'off' : 'on';
+        el.dataset.state = state;
+        el.textContent = state === 'on' ? 'Cache: ON' : 'Cache: OFF';
+        // store preference locally for demo
+        localStorage.setItem('cache_on', state);
+      }
+      function toggleCode(id) {
+        const box = document.getElementById(id);
+        if (!box) return;
+        box.style.display = box.style.display === 'block' ? 'none' : 'block';
+      }
+      function initDemo() {
+        const state = localStorage.getItem('cache_on') || 'on';
+        const toggles = document.querySelectorAll('.cache-toggle');
+        toggles.forEach(t => {
+          t.dataset.state = state;
+          t.textContent = state === 'on' ? 'Cache: ON' : 'Cache: OFF';
+        });
+      }
+      document.addEventListener('DOMContentLoaded', initDemo);
+    </script>
   </head>
   <body>
-    <h1>Cache Demos</h1>
-    {% block content %}{% endblock %}
+    <div class="app">
+      <aside class="sidebar">
+        <h2>CacheWise</h2>
+        <nav>
+          <a href="/demo/server">Server</a>
+          <a href="/demo/browser">Browser</a>
+          <a href="/demo/cdn">CDN</a>
+          <a href="/demo/database">Database</a>
+          <a href="/demo/in-memory">In-memory</a>
+        </nav>
+        <div style="margin-top:20px; font-size:0.9rem; color:#9aa6bf;">A small demo showing cache HIT / MISS behaviour.</div>
+      </aside>
+      <main>
+        <h1>Cache Demos</h1>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
   </body>
 </html>

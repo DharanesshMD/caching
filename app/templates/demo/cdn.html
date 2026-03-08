@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <h2>Server cache demo</h2>
+  <h2>CDN cache demo</h2>
 
   <div class="controls">
     <div class="toggle">
       <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="Server-side cache stored in Redis (simulated when no Redis present)">(?)</span>
+      <span class="tooltip" title="CDN caches between client and origin, simulated in-process here">(?)</span>
     </div>
     <div>
-      <button onclick="toggleCode('server-code')">Show me the code</button>
+      <button onclick="toggleCode('cdn-code')">Show me the code</button>
     </div>
   </div>
 
@@ -23,20 +23,13 @@
   <pre>{{ cache_result.value }}</pre>
 
   <div class="inspector">
-    <strong>Cache key:</strong> demo:server:time
+    <strong>Cache key:</strong> demo:cdn:time
   </div>
 
-  <div id="server-code" class="code-box code-panel">
-<pre>{% raw %}# app/routers/server_demo.py (excerpt)
-key = "demo:server:time"
-try:
-    r = await cache.get(key)
-except Exception:
-    r = CacheResult(value=None, hit=False, latency_ms=0.0)
-if not r.hit:
-    await asyncio.sleep(0.01)
-    payload = {"time": asyncio.get_event_loop().time()}
-    await cache.set(key, payload)
+  <div id="cdn-code" class="code-box code-panel">
+<pre>{% raw %}# app/cache/cdn_cache.py (excerpt)
+# In-memory store simulating CDN behavior with TTL and lookup
+await cache.set(key, payload)
 {% endraw %}</pre>
   </div>
 {% endblock %}

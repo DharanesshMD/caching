@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>Browser cache demo</h2>
+
+  <div class="controls">
+    <div class="toggle">
+      <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
+      <span class="tooltip" title="Browser cache is client-driven via Cache-Control and ETag headers">(?)</span>
+    </div>
+    <div>
+      <button onclick="toggleCode('browser-code')">Show me the code</button>
+    </div>
+  </div>
+
+  {% if cache_result.hit %}
+    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
+  {% else %}
+    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
+  {% endif %}
+
+  <h3>Payload</h3>
+  <pre>{{ cache_result.value }}</pre>
+
+  <h3>Headers</h3>
+  <pre>{{ browser_headers }}</pre>
+
+  <div class="inspector">
+    <strong>Cache key (client):</strong> demo:browser:time
+  </div>
+
+  <div id="browser-code" class="code-box code-panel">
+<pre>{% raw %}# app/routers/browser_demo.py (excerpt)
+# Browser caching is header-driven; server treats as MISS from server POV
+bheaders = cache_headers.build_browser_headers()
+return templates.TemplateResponse("demo/browser.html", {"request": request, "cache_result": r, "browser_headers": bheaders}, headers=headers)
+{% endraw %}</pre>
+  </div>
+{% endblock %}
