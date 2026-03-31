@@ -1,0 +1,91 @@
+{# ── Reusable educational macros for CacheWise demo pages ── #}
+
+{# ── Flow diagram: horizontal steps with arrows ── #}
+{% macro flow_diagram(steps, active_step=None) %}
+<div class="flow-diagram">
+  {% for step in steps %}
+    {% if not loop.first %}<span class="flow-arrow">&rarr;</span>{% endif %}
+    <div class="flow-step{% if step == active_step %} active{% endif %}">{{ step }}</div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# ── Pros & cons: two-column green/red grid ── #}
+{% macro pros_cons(pros, cons) %}
+<div class="pros-cons">
+  <div class="pros">
+    <h4>Pros</h4>
+    <ul>
+      {% for item in pros %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Cons</h4>
+    <ul>
+      {% for item in cons %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endmacro %}
+
+{# ── Use cases: grid of cards ── #}
+{% macro use_cases(cases) %}
+<div class="use-cases">
+  {% for case in cases %}
+    <div class="use-case-card">
+      <strong>{{ case.title }}</strong>
+      {{ case.desc }}
+    </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# ── Key terms: definition list ── #}
+{% macro key_terms(terms) %}
+<div class="key-terms">
+  <dl>
+    {% for term in terms %}
+      <dt>{{ term.term }}</dt>
+      <dd>{{ term.def }}</dd>
+    {% endfor %}
+  </dl>
+</div>
+{% endmacro %}
+
+{# ── Code inspector: tabbed code display ── #}
+{% macro code_inspector(id, tabs) %}
+<div class="code-inspector" id="{{ id }}">
+  <div class="code-tabs">
+    {% for tab in tabs %}
+      <button class="code-tab{% if loop.first %} active{% endif %}" data-tab="{{ id }}-panel-{{ loop.index }}" onclick="switchTab('{{ id }}', '{{ id }}-panel-{{ loop.index }}')">{{ tab.label }}</button>
+    {% endfor %}
+  </div>
+  {% for tab in tabs %}
+    <div class="code-panel-content{% if loop.first %} active{% endif %}" id="{{ id }}-panel-{{ loop.index }}">
+      <pre>{{ tab.code }}</pre>
+    </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# ── Demo result: standardized HIT/MISS badge + latency ── #}
+{% macro demo_result(cache_result) %}
+<div style="margin: 12px 0;">
+  {% if cache_result.hit %}
+    <span class="badge badge-hit">CACHE HIT &mdash; {{ cache_result.latency_ms|round(2) }} ms</span>
+  {% else %}
+    <span class="badge badge-miss">CACHE MISS &mdash; fetched from origin ({{ cache_result.latency_ms|round(2) }} ms)</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# ── Cache key inspector ── #}
+{% macro cache_key_inspector(key) %}
+<div class="inspector">
+  <strong>Cache key:</strong> <code>{{ key }}</code>
+</div>
+{% endmacro %}

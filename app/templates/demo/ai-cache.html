@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% from "components/edu_macros.html" import flow_diagram, pros_cons, use_cases, key_terms, code_inspector, demo_result, cache_key_inspector %}
+
+{% block page_title %}AI Semantic Cache{% endblock %}
+
+{% block content %}
+<h2>AI Semantic Cache</h2>
+
+<!-- What is it? (open) -->
+<details open>
+  <summary>What is Semantic Caching?</summary>
+  <div class="details-body">
+    <p>
+      Semantic caching is a technique for caching LLM (Large Language Model) responses based on the
+      <strong>meaning</strong> of a prompt rather than its exact text. Traditional caches use exact
+      string matching &mdash; "What is Python?" and "Explain Python" would be treated as completely
+      different keys. A semantic cache recognizes these prompts are asking roughly the same thing and
+      returns the cached response.
+    </p>
+    <p>
+      In production, this typically uses <strong>embedding vectors</strong> and <strong>cosine
+      similarity</strong> to measure how close two prompts are. This demo simulates that behavior
+      using token normalization and fingerprint matching &mdash; no ML dependencies required.
+    </p>
+  </div>
+</details>
+
+<!-- How it works (open) -->
+<details open>
+  <summary>How It Works</summary>
+  <div class="details-body">
+    <p>The normalization pipeline transforms raw prompts into canonical fingerprints:</p>
+    {{ flow_diagram(["Raw Prompt", "Lowercase", "Remove Punctuation", "Strip Stopwords", "Sort Tokens", "SHA-256 Fingerprint"], "SHA-256 Fingerprint") }}
+    <ol>
+      <li><strong>Normalize:</strong> The prompt is lowercased, punctuation is removed, common stopwords are stripped, and remaining tokens are sorted alphabetically.</li>
+      <li><strong>Fingerprint:</strong> The normalized string is hashed with SHA-256, creating a canonical identifier.</li>
+      <li><strong>Exact match:</strong> If the fingerprint matches a stored entry, return it immediately.</li>
+      <li><strong>Semantic match:</strong> Generate n-1 gram variants (dropping each token once) and check if any variant's fingerprint matches the index.</li>
+      <li><strong>Miss:</strong> If no match, call the LLM, store the response, and index its variants for future matching.</li>
+    </ol>
+  </div>
+</details>
+
+<!-- Interactive demo (open) -->
+<details open>
+  <summary>Interactive Demo</summary>
+  <div class="details-body">
+    <div class="demo-panel">
+      <h3>Try a prompt</h3>
+      <form method="get" action="/demo/ai-cache" style="margin-bottom: 16px;">
+        <input type="text" name="prompt" value="{{ prompt }}" style="width: 100%; max-width: 500px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.95rem;" />
+        <button type="submit" style="margin-left: 8px;">Send</button>
+      </form>
+
+      <div class="sample-prompts">
+        <strong style="font-size: 0.85rem; color: #64748b;">Try these:</strong>
+        {% for sp in sample_prompts %}
+          <a href="/demo/ai-cache?prompt={{ sp|urlencode }}"><button type="button">{{ sp }}</button></a>
+        {% endfor %}
+      </div>
+
+      <!-- Match type indicator -->
+      <div style="margin: 16px 0;">
+        {% if match_type == "exact" %}
+          <span class="badge badge-hit">Exact Match</span>
+        {% elif match_type == "semantic" %}
+          <span class="badge badge-semantic">Semantic Match</span>
+        {% else %}
+          <span class="badge badge-miss">Cache Miss</span>
+        {% endif %}
+        <span style="margin-left: 8px; font-size: 0.85rem; color: #64748b;">{{ cache_result.latency_ms|round(3) }} ms</span>
+      </div>
+
+      <!-- Normalization pipeline -->
+      <h4>Normalization Pipeline</h4>
+      <div class="pipeline">
+        <div class="pipeline-stage" style="background: #fef3c7;">{{ prompt }}</div>
+        <span class="pipeline-arrow">&rarr;</span>
+        <div class="pipeline-stage" style="background: #dbeafe;">{{ normalized }}</div>
+        <span class="pipeline-arrow">&rarr;</span>
+        <div class="pipeline-stage" style="background: #dcfce7; font-size: 0.75rem;">{{ fingerprint[:16] }}...</div>
+      </div>
+
+      <h4>Response</h4>
+      <pre>{{ cache_result.value }}</pre>
+
+      <!-- Stats -->
+      <h4>Cache Statistics</h4>
+      <div class="stats-bar">
+        <div class="stat-item">
+          <div class="stat-value">{{ stats.exact_hits }}</div>
+          <div class="stat-label">Exact Hits</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ stats.semantic_hits }}</div>
+          <div class="stat-label">Semantic Hits</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ stats.misses }}</div>
+          <div class="stat-label">Misses</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${{ "%.2f"|format(stats.estimated_cost_saved) }}</div>
+          <div class="stat-label">Est. Cost Saved</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- Pros & cons (collapsed) -->
+<details>
+  <summary>Pros &amp; Cons</summary>
+  <div class="details-body">
+    {{ pros_cons(
+      pros=[
+        "Significant cost savings: avoid redundant LLM API calls ($0.01-0.10 each)",
+        "Lower latency: cached responses return in milliseconds vs. seconds",
+        "Fuzzy matching: similar prompts share cached responses",
+        "Reduces load on LLM providers (rate limits, quotas)",
+        "Can improve consistency: same question always gets same answer"
+      ],
+      cons=[
+        "Embedding computation adds overhead for each new prompt",
+        "Similarity threshold tuning: too loose = wrong answers, too strict = low hit rate",
+        "Cache invalidation harder: when should cached LLM responses expire?",
+        "Context-dependent prompts (conversations) are harder to match",
+        "Requires vector database or similarity search infrastructure in production"
+      ]
+    ) }}
+  </div>
+</details>
+
+<!-- Use cases (collapsed) -->
+<details>
+  <summary>Real-World Use Cases</summary>
+  <div class="details-body">
+    {{ use_cases([
+      {"title": "Customer Support Chatbots", "desc": "Many users ask the same questions in different words. Semantic cache returns instant, consistent answers."},
+      {"title": "Code Generation Tools", "desc": "Cache common coding prompts like 'write a Python function to sort a list' across similar phrasings."},
+      {"title": "RAG Pipelines", "desc": "Cache retrieval-augmented generation results for frequently asked questions about documentation."},
+      {"title": "Cost Optimization", "desc": "Organizations processing millions of LLM requests can save 30-70% of API costs with semantic caching."}
+    ]) }}
+  </div>
+</details>
+
+<!-- Code inspector (collapsed) -->
+<details>
+  <summary>Code Inspector</summary>
+  <div class="details-body">
+    {{ code_inspector("ai-inspector", [
+      {"label": "Router", "code": "# app/routers/ai_demo.py\n\n# Module-level instance persists across requests\n_ai_cache = AISemanticCache(default_ttl=600)\n\n@router.get(\"/demo/ai-cache\")\nasync def ai_cache_demo(request, prompt=\"What is Python?\"):\n    match_type = _ai_cache.get_match_type(prompt)\n    result = await _ai_cache.get(prompt)\n\n    if not result.hit:\n        response_text = _generate_response(prompt)\n        await _ai_cache.set(prompt, response_text)\n        match_type = \"miss\"\n\n    normalized = AISemanticCache.normalize(prompt)\n    fingerprint = AISemanticCache.fingerprint(normalized)"},
+      {"label": "Normalization", "code": "# app/cache/ai_cache.py\nclass AISemanticCache:\n    @staticmethod\n    def normalize(text: str) -> str:\n        text = text.lower()\n        text = re.sub(r\"[^\\w\\s]\", \"\", text)\n        tokens = text.split()\n        tokens = [t for t in tokens if t not in _STOPWORDS]\n        tokens.sort()\n        return \" \".join(tokens)\n\n    @staticmethod\n    def fingerprint(normalized: str) -> str:\n        return hashlib.sha256(normalized.encode()).hexdigest()"},
+      {"label": "Semantic Matching", "code": "# app/cache/ai_cache.py — variant generation\n@staticmethod\ndef _generate_variants(normalized: str) -> List[str]:\n    \"\"\"Generate n-1 grams for fuzzy matching.\"\"\"\n    tokens = normalized.split()\n    if len(tokens) <= 1:\n        return []\n    variants = []\n    for i in range(len(tokens)):\n        variant = \" \".join(tokens[:i] + tokens[i+1:])\n        variants.append(variant)\n    return variants\n\n# On get(): check exact fingerprint, then try\n# each variant's fingerprint against the index"},
+      {"label": "Production (Embeddings)", "code": "# In production, use real embeddings:\nimport openai\nimport numpy as np\n\ndef get_embedding(text: str) -> np.ndarray:\n    resp = openai.Embedding.create(\n        input=text, model=\"text-embedding-3-small\"\n    )\n    return np.array(resp.data[0].embedding)\n\ndef cosine_similarity(a, b) -> float:\n    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))\n\n# Cache lookup:\nquery_emb = get_embedding(prompt)\nfor cached in cache_entries:\n    sim = cosine_similarity(query_emb, cached.embedding)\n    if sim > 0.92:  # similarity threshold\n        return cached.response"}
+    ]) }}
+  </div>
+</details>
+
+<!-- Key terms (collapsed) -->
+<details>
+  <summary>Key Concepts &amp; Terminology</summary>
+  <div class="details-body">
+    {{ key_terms([
+      {"term": "Embedding Vector", "def": "A dense numerical representation of text (typically 256-1536 dimensions) where semantically similar texts have similar vectors."},
+      {"term": "Cosine Similarity", "def": "A measure of similarity between two vectors, ranging from -1 to 1. Values above 0.9 typically indicate very similar meaning."},
+      {"term": "Similarity Threshold", "def": "The minimum cosine similarity score required to consider two prompts as 'matching'. Tuning this is critical: too low = false matches, too high = few hits."},
+      {"term": "Prompt Normalization", "def": "Preprocessing text to a canonical form (lowercase, strip punctuation, remove stopwords) before comparison or hashing."},
+      {"term": "N-gram Variants", "def": "Subsequences of N tokens from the original text. N-1 grams (dropping one token) enable fuzzy matching of similar prompts."},
+      {"term": "Model Versioning", "def": "When the LLM model changes, cached responses may become outdated. Cache keys should include model version to prevent stale responses."}
+    ]) }}
+  </div>
+</details>
+{% endblock %}

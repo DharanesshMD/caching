@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block page_title %}Home{% endblock %}
+
+{% block content %}
+<div class="hero">
+  <h1>Welcome to CacheWise</h1>
+  <p>An interactive guide to caching &mdash; explore 6 layers of caching through hands-on demos, visual diagrams, and real code.</p>
+</div>
+
+<div class="edu-section">
+  <h2>What is Caching?</h2>
+  <p>
+    Caching stores copies of data in a faster-access location so future requests can be served more quickly.
+    Instead of computing results or fetching from a slow data source every time, a cache returns previously stored
+    answers in milliseconds. Every layer of a modern web stack uses caching &mdash; from the user's browser all the
+    way down to the database engine.
+  </p>
+</div>
+
+<div class="edu-section">
+  <h2>The Caching Stack</h2>
+  <p>Requests flow through multiple caching layers. Each layer intercepts the request and can return a cached response, avoiding the slower layers below.</p>
+  <div class="flow-diagram">
+    <div class="flow-step">Browser</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">CDN</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">Server / Redis</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">In-Memory</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">Database</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">AI Cache</div>
+  </div>
+</div>
+
+<div class="edu-section">
+  <h2>Explore the Layers</h2>
+  <div class="layer-grid">
+    <a class="layer-card" href="/demo/browser">
+      <span class="layer-icon">🌐</span>
+      <h3>Browser Cache</h3>
+      <p>Client-side caching using HTTP headers like Cache-Control, ETag, and 304 Not Modified responses.</p>
+    </a>
+    <a class="layer-card" href="/demo/cdn">
+      <span class="layer-icon">🌍</span>
+      <h3>CDN Cache</h3>
+      <p>Edge nodes distributed globally that cache content close to users, reducing latency and origin load.</p>
+    </a>
+    <a class="layer-card" href="/demo/server">
+      <span class="layer-icon">🖥️</span>
+      <h3>Server / Redis Cache</h3>
+      <p>Centralized server-side caching with Redis &mdash; TTL, serialization, and shared state across instances.</p>
+    </a>
+    <a class="layer-card" href="/demo/in-memory">
+      <span class="layer-icon">⚡</span>
+      <h3>In-Memory Cache</h3>
+      <p>Process-local caching for ultra-fast access &mdash; LRU eviction, lazy expiration, and zero network overhead.</p>
+    </a>
+    <a class="layer-card" href="/demo/database">
+      <span class="layer-icon">🗄️</span>
+      <h3>Database Cache</h3>
+      <p>Query-level caching that avoids repeated expensive database queries using write-through and cache-aside patterns.</p>
+    </a>
+    <a class="layer-card" href="/demo/ai-cache">
+      <span class="layer-icon">🤖</span>
+      <h3>AI Semantic Cache</h3>
+      <p>Intelligent caching for LLM responses &mdash; matches semantically similar prompts to save cost and latency.</p>
+    </a>
+  </div>
+</div>
+
+<div class="edu-section">
+  <h2>How to Use This App</h2>
+  <p>
+    Click any layer above to explore its demo page. Each page includes:
+  </p>
+  <ul>
+    <li><strong>What it is</strong> &mdash; a clear explanation of the caching concept</li>
+    <li><strong>How it works</strong> &mdash; a visual flow diagram showing the request path</li>
+    <li><strong>Interactive demo</strong> &mdash; see live HIT/MISS behavior (refresh to toggle!)</li>
+    <li><strong>Pros &amp; cons</strong> &mdash; trade-offs to consider in real systems</li>
+    <li><strong>Real-world use cases</strong> &mdash; where this pattern is used in production</li>
+    <li><strong>Code inspector</strong> &mdash; tabbed view of the actual source code powering each demo</li>
+    <li><strong>Key terms</strong> &mdash; definitions of important concepts</li>
+  </ul>
+</div>
+{% endblock %}

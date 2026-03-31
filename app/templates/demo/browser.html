@@ -1,39 +1,122 @@
 {% extends "base.html" %}
+{% from "components/edu_macros.html" import flow_diagram, pros_cons, use_cases, key_terms, code_inspector, demo_result, cache_key_inspector %}
+
+{% block page_title %}Browser Cache{% endblock %}
 
 {% block content %}
-  <h2>Browser cache demo</h2>
+<h2>Browser Cache</h2>
 
-  <div class="controls">
-    <div class="toggle">
-      <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="Browser cache is client-driven via Cache-Control and ETag headers">(?)</span>
+<!-- ── What is it? (open) ── -->
+<details open>
+  <summary>What is Browser Caching?</summary>
+  <div class="details-body">
+    <p>
+      Browser caching is the first layer of the caching stack. The browser stores copies of responses
+      locally on the user's device, controlled entirely by <strong>HTTP headers</strong> sent by the server.
+      When the browser has a cached copy, it can serve it instantly without making any network request at all.
+    </p>
+    <p>
+      This is the fastest possible cache layer because the data never leaves the user's machine &mdash;
+      there's zero network latency. The trade-off is that the server doesn't control when the browser
+      evicts cached data, and each user has their own independent cache.
+    </p>
+  </div>
+</details>
+
+<!-- ── How it works (open) ── -->
+<details open>
+  <summary>How It Works</summary>
+  <div class="details-body">
+    <p>Browser caching is driven by HTTP response headers. The server tells the browser how long to keep a response and how to validate it:</p>
+    {{ flow_diagram(["Browser checks local cache", "Cache fresh?", "Yes: serve from disk", "No: send request with ETag", "Server: 304 Not Modified?", "Serve cached / new response"], "Browser checks local cache") }}
+    <ol>
+      <li><strong>First request:</strong> Browser has no cache. Server responds with <code>Cache-Control: max-age=3600</code> and <code>ETag: "abc123"</code>.</li>
+      <li><strong>Subsequent request (within max-age):</strong> Browser serves directly from local cache &mdash; no network request at all.</li>
+      <li><strong>After max-age expires:</strong> Browser sends a conditional request with <code>If-None-Match: "abc123"</code>.</li>
+      <li><strong>304 Not Modified:</strong> If the resource hasn't changed, the server responds with just headers (no body), saving bandwidth.</li>
+      <li><strong>200 with new body:</strong> If changed, the server sends the full new response with updated ETag.</li>
+    </ol>
+  </div>
+</details>
+
+<!-- ── Interactive demo (open) ── -->
+<details open>
+  <summary>Interactive Demo</summary>
+  <div class="details-body">
+    <div class="demo-panel">
+      {{ demo_result(cache_result) }}
+      {{ cache_key_inspector("demo:browser:time") }}
+      <h4>Response Headers Sent</h4>
+      <pre>{{ browser_headers }}</pre>
+      <h4>Payload</h4>
+      <pre>{{ cache_result.value }}</pre>
+      <p style="font-size:0.85rem; color:#64748b;">
+        <strong>Note:</strong> From the server's perspective, browser cache is always a MISS because the server can't observe when the browser serves from its local cache. Check your browser DevTools Network tab to see <code>(from disk cache)</code> or <code>304 Not Modified</code> responses.
+      </p>
     </div>
-    <div>
-      <button onclick="toggleCode('browser-code')">Show me the code</button>
-    </div>
   </div>
+</details>
 
-  {% if cache_result.hit %}
-    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
-  {% else %}
-    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
-  {% endif %}
-
-  <h3>Payload</h3>
-  <pre>{{ cache_result.value }}</pre>
-
-  <h3>Headers</h3>
-  <pre>{{ browser_headers }}</pre>
-
-  <div class="inspector">
-    <strong>Cache key (client):</strong> demo:browser:time
+<!-- ── Pros & cons (collapsed) ── -->
+<details>
+  <summary>Pros &amp; Cons</summary>
+  <div class="details-body">
+    {{ pros_cons(
+      pros=[
+        "Zero latency: data served from local disk, no network round-trip",
+        "Reduces server load: requests never reach the origin",
+        "Saves bandwidth for users on metered connections",
+        "Works offline for cached resources (Progressive Web Apps)",
+        "No infrastructure cost: uses the browser's built-in storage"
+      ],
+      cons=[
+        "Per-user cache: each browser has its own copy, no sharing",
+        "Hard to invalidate: server can't force a browser to clear its cache",
+        "Limited control: browser may evict cache under memory pressure",
+        "Stale content risk if max-age is set too long",
+        "Debugging difficulty: cached responses can mask server changes"
+      ]
+    ) }}
   </div>
+</details>
 
-  <div id="browser-code" class="code-box code-panel">
-<pre>{% raw %}# app/routers/browser_demo.py (excerpt)
-# Browser caching is header-driven; server treats as MISS from server POV
-bheaders = cache_headers.build_browser_headers()
-return templates.TemplateResponse("demo/browser.html", {"request": request, "cache_result": r, "browser_headers": bheaders}, headers=headers)
-{% endraw %}</pre>
+<!-- ── Use cases (collapsed) ── -->
+<details>
+  <summary>Real-World Use Cases</summary>
+  <div class="details-body">
+    {{ use_cases([
+      {"title": "Static Assets", "desc": "CSS, JS, and images with content-hashed filenames use long max-age (1 year) since the URL changes when content changes."},
+      {"title": "API GET Responses", "desc": "Short max-age (60s) with ETag for frequently read but rarely changing data like user profiles."},
+      {"title": "stale-while-revalidate", "desc": "Serve stale content immediately while fetching a fresh copy in the background, giving instant perceived performance."},
+      {"title": "Offline-First PWAs", "desc": "Service Workers extend browser caching to enable full offline functionality with custom cache strategies."}
+    ]) }}
   </div>
+</details>
+
+<!-- ── Code inspector (collapsed) ── -->
+<details>
+  <summary>Code Inspector</summary>
+  <div class="details-body">
+    {{ code_inspector("browser-inspector", [
+      {"label": "Router", "code": "# app/routers/browser_demo.py\nr: CacheResult = await cache.get(key)\n\nif not r.hit:\n    await asyncio.sleep(0.001)\n    payload = {\"time\": asyncio.get_event_loop().time()}\n    await cache.set(key, payload)\n    r = CacheResult(value=payload, hit=False, latency_ms=r.latency_ms)\n\n# Include browser headers for the demo\nbheaders = cache_headers.build_browser_headers()\nreturn templates.TemplateResponse(\n    \"demo/browser.html\",\n    {\"request\": request, \"cache_result\": r, \"browser_headers\": bheaders},\n    headers=headers,\n)"},
+      {"label": "Cache Implementation", "code": "# app/cache/browser_cache.py\nclass BrowserCache(AsyncCache[Any]):\n    \"\"\"Browser cache is header-driven.\n    Server always returns MISS because it cannot\n    observe client-side cache state.\"\"\"\n\n    async def get(self, key: str) -> CacheResult[Any]:\n        # Browser caching is client-driven\n        return CacheResult(value=None, hit=False, latency_ms=0.0)\n\n    async def set(self, key, value, ttl=None):\n        # No-op: browser caches via response headers\n        return None"},
+      {"label": "Header Builder", "code": "# app/middleware/cache_headers.py\ndef build_browser_headers(ttl=3600, etag=None):\n    headers = {\n        \"Cache-Control\": f\"public, max-age={ttl}\",\n        \"Vary\": \"Accept-Encoding\",\n    }\n    if etag:\n        headers[\"ETag\"] = etag\n    return headers"}
+    ]) }}
+  </div>
+</details>
+
+<!-- ── Key terms (collapsed) ── -->
+<details>
+  <summary>Key Concepts &amp; Terminology</summary>
+  <div class="details-body">
+    {{ key_terms([
+      {"term": "Cache-Control", "def": "The primary HTTP header for caching directives. Common values: max-age, no-cache, no-store, public, private."},
+      {"term": "max-age", "def": "Tells the browser how many seconds a response can be served from cache without revalidation."},
+      {"term": "ETag", "def": "An opaque identifier (hash or version) for a specific version of a resource. Used for conditional requests."},
+      {"term": "304 Not Modified", "def": "Server response indicating the cached version is still valid. Saves bandwidth by not resending the body."},
+      {"term": "stale-while-revalidate", "def": "Cache-Control extension that allows serving a stale response immediately while fetching an update in the background."},
+      {"term": "Vary Header", "def": "Tells the browser that the response varies based on certain request headers (e.g., Accept-Encoding), so different variants need separate cache entries."}
+    ]) }}
+  </div>
+</details>
 {% endblock %}

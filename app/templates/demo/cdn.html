@@ -1,35 +1,122 @@
 {% extends "base.html" %}
+{% from "components/edu_macros.html" import flow_diagram, pros_cons, use_cases, key_terms, code_inspector, demo_result, cache_key_inspector %}
+
+{% block page_title %}CDN Cache{% endblock %}
 
 {% block content %}
-  <h2>CDN cache demo</h2>
+<h2>CDN Cache</h2>
 
-  <div class="controls">
-    <div class="toggle">
-      <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="CDN caches between client and origin, simulated in-process here">(?)</span>
+<!-- ── What is it? (open) ── -->
+<details open>
+  <summary>What is CDN Caching?</summary>
+  <div class="details-body">
+    <p>
+      A <strong>Content Delivery Network (CDN)</strong> is a globally distributed network of edge servers
+      that cache content close to end users. Instead of every request traveling to your origin server
+      (which might be in one data center), the CDN serves cached copies from the nearest
+      <strong>Point of Presence (PoP)</strong> &mdash; often just a few milliseconds away.
+    </p>
+    <p>
+      CDNs sit between the browser and your origin server. On the first request, the CDN fetches from
+      origin (a <strong>cache fill</strong>), stores the response, and serves subsequent requests from
+      its edge cache. This dramatically reduces latency for global users and offloads traffic from your
+      origin infrastructure.
+    </p>
+  </div>
+</details>
+
+<!-- ── How it works (open) ── -->
+<details open>
+  <summary>How It Works</summary>
+  <div class="details-body">
+    <p>CDN caching adds an edge layer between the client and your origin server:</p>
+    {{ flow_diagram(["User (Tokyo)", "CDN Edge (Tokyo)", "CDN Edge (US)", "Origin Server (US)"], "CDN Edge (Tokyo)") }}
+    <ol>
+      <li><strong>DNS resolution:</strong> The user's request is routed to the nearest CDN edge node via Anycast or DNS-based routing.</li>
+      <li><strong>Edge cache check:</strong> The edge server checks if it has a cached copy that hasn't expired.</li>
+      <li><strong>Cache HIT:</strong> If found, the edge responds directly &mdash; the request never reaches your origin.</li>
+      <li><strong>Cache MISS (fill):</strong> The edge fetches from origin (or a mid-tier shield), caches the response, and serves it.</li>
+      <li><strong>Cache purge:</strong> When content changes, you can invalidate the CDN cache via API, forcing a fresh fill on the next request.</li>
+    </ol>
+  </div>
+</details>
+
+<!-- ── Interactive demo (open) ── -->
+<details open>
+  <summary>Interactive Demo</summary>
+  <div class="details-body">
+    <div class="demo-panel">
+      {{ demo_result(cache_result) }}
+      {{ cache_key_inspector("demo:cdn:time") }}
+      <h4>Payload</h4>
+      <pre>{{ cache_result.value }}</pre>
+      <p style="font-size:0.85rem; color:#64748b;">
+        This demo simulates a CDN edge cache in-process. Refresh to see a HIT on the second request. In production, the CDN would be a separate infrastructure layer (Cloudflare, CloudFront, Fastly).
+      </p>
     </div>
-    <div>
-      <button onclick="toggleCode('cdn-code')">Show me the code</button>
-    </div>
   </div>
+</details>
 
-  {% if cache_result.hit %}
-    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
-  {% else %}
-    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
-  {% endif %}
-
-  <h3>Payload</h3>
-  <pre>{{ cache_result.value }}</pre>
-
-  <div class="inspector">
-    <strong>Cache key:</strong> demo:cdn:time
+<!-- ── Pros & cons (collapsed) ── -->
+<details>
+  <summary>Pros &amp; Cons</summary>
+  <div class="details-body">
+    {{ pros_cons(
+      pros=[
+        "Dramatically lower latency for global users (serve from nearest edge)",
+        "Massive traffic offload from origin servers",
+        "Built-in DDoS protection and traffic absorption",
+        "Automatic scaling: CDN handles traffic spikes",
+        "TLS termination at the edge reduces origin CPU load"
+      ],
+      cons=[
+        "Cache invalidation complexity (purge propagation delay)",
+        "Cost increases with bandwidth and request volume",
+        "Not suitable for personalized or authenticated content without configuration",
+        "Debugging is harder: responses may come from different edge nodes",
+        "Vary header misconfiguration can cause cache fragmentation"
+      ]
+    ) }}
   </div>
+</details>
 
-  <div id="cdn-code" class="code-box code-panel">
-<pre>{% raw %}# app/cache/cdn_cache.py (excerpt)
-# In-memory store simulating CDN behavior with TTL and lookup
-await cache.set(key, payload)
-{% endraw %}</pre>
+<!-- ── Use cases (collapsed) ── -->
+<details>
+  <summary>Real-World Use Cases</summary>
+  <div class="details-body">
+    {{ use_cases([
+      {"title": "Static Asset Delivery", "desc": "Images, CSS, JS files served from the nearest edge with long TTLs and content-hashed URLs."},
+      {"title": "API Acceleration", "desc": "Cache GET API responses at the edge for public data (product catalogs, news feeds) with short TTLs."},
+      {"title": "Video Streaming", "desc": "CDNs chunk and cache video segments across edges to handle millions of concurrent viewers."},
+      {"title": "Origin Shielding", "desc": "A mid-tier cache layer collapses many edge misses into a single origin request, protecting the origin from thundering herd."}
+    ]) }}
   </div>
+</details>
+
+<!-- ── Code inspector (collapsed) ── -->
+<details>
+  <summary>Code Inspector</summary>
+  <div class="details-body">
+    {{ code_inspector("cdn-inspector", [
+      {"label": "Router", "code": "# app/routers/cdn_demo.py\nkey = \"demo:cdn:time\"\n\ntry:\n    r: CacheResult = await cache.get(key)\nexcept Exception:\n    r = CacheResult(value=None, hit=False, latency_ms=0.0)\n\nif not r.hit:\n    await asyncio.sleep(0.005)\n    payload = {\"time\": asyncio.get_event_loop().time()}\n    await cache.set(key, payload)\n    r = CacheResult(value=payload, hit=False, latency_ms=r.latency_ms)"},
+      {"label": "Cache Implementation", "code": "# app/cache/cdn_cache.py\nclass CDNCached(AsyncCache[Any]):\n    def __init__(self, default_ttl=3600):\n        self._store = {}  # Simulates CDN edge storage\n        self._default_ttl = default_ttl\n        self._lock = asyncio.Lock()\n\n    async def get(self, key):\n        start = time.perf_counter()\n        async with self._lock:\n            await self._cleanup()\n            entry = self._store.get(key)\n            latency_ms = (time.perf_counter() - start) * 1000.0\n            if not entry:\n                return CacheResult(value=None, hit=False, latency_ms=latency_ms)\n            value = json.loads(entry[\"value\"])\n            return CacheResult(value=value, hit=True, latency_ms=latency_ms)"},
+      {"label": "CDN Headers (production)", "code": "# In production, CDN caching is controlled by headers:\n\n# Standard caching\nCache-Control: public, max-age=86400, s-maxage=3600\n\n# CDN-specific (Surrogate-Control)\nSurrogate-Control: max-age=3600\nSurrogate-Key: product-123 homepage\n\n# Vary header for content negotiation\nVary: Accept-Encoding, Accept-Language"}
+    ]) }}
+  </div>
+</details>
+
+<!-- ── Key terms (collapsed) ── -->
+<details>
+  <summary>Key Concepts &amp; Terminology</summary>
+  <div class="details-body">
+    {{ key_terms([
+      {"term": "Edge Node / PoP", "def": "A CDN server located in a specific geographic region (Point of Presence). Users are routed to the nearest one."},
+      {"term": "Cache Fill", "def": "When an edge node doesn't have content cached, it fetches from the origin server and stores it for future requests."},
+      {"term": "Cache Purge", "def": "Explicitly invalidating cached content across all CDN edge nodes, forcing a fresh fetch from origin."},
+      {"term": "s-maxage", "def": "A Cache-Control directive that applies only to shared caches (CDNs), overriding max-age for edge behavior."},
+      {"term": "Surrogate-Control", "def": "A non-standard header used by CDNs (Fastly, Varnish) for cache control that is stripped before reaching the browser."},
+      {"term": "Vary Header", "def": "Tells the CDN that the response varies based on specific request headers (e.g., Accept-Encoding), requiring separate cache entries per variant."}
+    ]) }}
+  </div>
+</details>
 {% endblock %}

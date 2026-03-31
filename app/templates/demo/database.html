@@ -1,36 +1,121 @@
 {% extends "base.html" %}
+{% from "components/edu_macros.html" import flow_diagram, pros_cons, use_cases, key_terms, code_inspector, demo_result, cache_key_inspector %}
+
+{% block page_title %}Database Cache{% endblock %}
 
 {% block content %}
-  <h2>Database cache demo</h2>
+<h2>Database Cache</h2>
 
-  <div class="controls">
-    <div class="toggle">
-      <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="Query caching layer for DB queries">(?)</span>
+<!-- ── What is it? (open) ── -->
+<details open>
+  <summary>What is Database Caching?</summary>
+  <div class="details-body">
+    <p>
+      Database caching stores the results of expensive database queries so they can be returned
+      instantly on subsequent identical requests. Instead of executing a complex SQL query with
+      joins, aggregations, or full-table scans every time, the result set is cached after the
+      first execution.
+    </p>
+    <p>
+      This can happen at multiple levels: the database engine's internal query cache, an ORM-level
+      cache, or an application-level cache layer that wraps database calls. The goal is always the
+      same &mdash; avoid repeating work the database has already done.
+    </p>
+  </div>
+</details>
+
+<!-- ── How it works (open) ── -->
+<details open>
+  <summary>How It Works</summary>
+  <div class="details-body">
+    <p>Database caching intercepts queries before they reach the database engine:</p>
+    {{ flow_diagram(["Application", "Query Cache Layer", "Database Engine", "Disk Storage"], "Query Cache Layer") }}
+    <ol>
+      <li><strong>Query arrives:</strong> The application (or ORM) generates a database query.</li>
+      <li><strong>Cache lookup:</strong> A hash of the query (+ parameters) is used as the cache key. The cache layer checks for a stored result.</li>
+      <li><strong>HIT:</strong> Cached result is returned directly, bypassing the database entirely.</li>
+      <li><strong>MISS:</strong> Query executes against the database. The result is stored in cache with a TTL.</li>
+      <li><strong>Invalidation:</strong> When underlying data changes (INSERT, UPDATE, DELETE), related cache entries must be invalidated to prevent serving stale data.</li>
+    </ol>
+  </div>
+</details>
+
+<!-- ── Interactive demo (open) ── -->
+<details open>
+  <summary>Interactive Demo</summary>
+  <div class="details-body">
+    <div class="demo-panel">
+      {{ demo_result(cache_result) }}
+      {{ cache_key_inspector("demo:db:time") }}
+      <h4>Query Result (Payload)</h4>
+      <pre>{{ cache_result.value }}</pre>
+      <p style="font-size:0.85rem; color:#64748b;">
+        This simulates a database query cache. The first request executes the "query" (simulated with a sleep). Subsequent requests return the cached result instantly.
+      </p>
     </div>
-    <div>
-      <button onclick="toggleCode('db-code')">Show me the code</button>
-    </div>
   </div>
+</details>
 
-  {% if cache_result.hit %}
-    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
-  {% else %}
-    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
-  {% endif %}
-
-  <h3>Payload</h3>
-  <pre>{{ cache_result.value }}</pre>
-
-  <div class="inspector">
-    <strong>Cache key:</strong> demo:db:time
+<!-- ── Pros & cons (collapsed) ── -->
+<details>
+  <summary>Pros &amp; Cons</summary>
+  <div class="details-body">
+    {{ pros_cons(
+      pros=[
+        "Eliminates repeated expensive queries (joins, aggregations)",
+        "Reduces database CPU and I/O load significantly",
+        "Can be layered: DB engine cache + application cache",
+        "Transparent to the rest of the application when well-implemented",
+        "Dramatically improves read-heavy workload performance"
+      ],
+      cons=[
+        "Invalidation complexity: stale data if cache isn't cleared on writes",
+        "Cache-aside requires application code changes",
+        "Memory overhead proportional to distinct query results",
+        "Write-through adds latency to every write operation",
+        "Not effective for highly dynamic data with frequent writes"
+      ]
+    ) }}
   </div>
+</details>
 
-  <div id="db-code" class="code-box code-panel">
-<pre>{% raw %}# app/routers/db_demo.py (excerpt)
-# Simulated DB query and cache.set
-payload = {"rows": [{"id": 1, "ts": asyncio.get_event_loop().time()}]}
-await cache.set(key, payload)
-{% endraw %}</pre>
+<!-- ── Use cases (collapsed) ── -->
+<details>
+  <summary>Real-World Use Cases</summary>
+  <div class="details-body">
+    {{ use_cases([
+      {"title": "Dashboard Aggregations", "desc": "Cache results of complex GROUP BY queries that power analytics dashboards, refreshing every few minutes."},
+      {"title": "Product Catalog", "desc": "Cache product listings and details that change infrequently, invalidating on admin updates."},
+      {"title": "User Profile Lookups", "desc": "Cache user profile data that's read on every authenticated request but rarely updated."},
+      {"title": "Leaderboards & Rankings", "desc": "Cache sorted query results for leaderboards, refreshing periodically rather than on every view."}
+    ]) }}
   </div>
+</details>
+
+<!-- ── Code inspector (collapsed) ── -->
+<details>
+  <summary>Code Inspector</summary>
+  <div class="details-body">
+    {{ code_inspector("db-inspector", [
+      {"label": "Router", "code": "# app/routers/db_demo.py\nkey = \"demo:db:time\"\n\ntry:\n    r: CacheResult = await cache.get(key)\nexcept Exception:\n    r = CacheResult(value=None, hit=False, latency_ms=0.0)\n\nif not r.hit:\n    await asyncio.sleep(0.002)\n    # Simulate a DB query result\n    payload = {\"rows\": [{\"id\": 1, \"ts\": asyncio.get_event_loop().time()}]}\n    await cache.set(key, payload)\n    r = CacheResult(value=payload, hit=False, latency_ms=r.latency_ms)"},
+      {"label": "Cache Implementation", "code": "# app/cache/db_cache.py\nclass DBCache(AsyncCache[Any]):\n    \"\"\"Simulates database query caching with TTL.\"\"\"\n\n    def __init__(self, default_ttl=600):\n        self._store = {}  # query_hash -> result\n        self._default_ttl = default_ttl\n        self._lock = asyncio.Lock()\n\n    async def get(self, key):\n        async with self._lock:\n            await self._cleanup()\n            entry = self._store.get(key)\n            if not entry:\n                return CacheResult(value=None, hit=False, ...)\n            value = json.loads(entry[\"value\"])\n            return CacheResult(value=value, hit=True, ...)"},
+      {"label": "Patterns (production)", "code": "# Cache-Aside Pattern\nresult = cache.get(query_hash)\nif result is None:\n    result = db.execute(query)\n    cache.set(query_hash, result, ttl=300)\nreturn result\n\n# Write-Through Pattern\ndef update_user(user_id, data):\n    db.update(\"users\", user_id, data)\n    cache.set(f\"user:{user_id}\", data)  # update cache too\n\n# Write-Behind (async)\ndef update_user(user_id, data):\n    cache.set(f\"user:{user_id}\", data)\n    queue.enqueue(\"db_write\", user_id, data)  # async DB write"}
+    ]) }}
+  </div>
+</details>
+
+<!-- ── Key terms (collapsed) ── -->
+<details>
+  <summary>Key Concepts &amp; Terminology</summary>
+  <div class="details-body">
+    {{ key_terms([
+      {"term": "Cache-Aside (Lazy Loading)", "def": "Application checks cache first, loads from DB on miss, and populates cache. Most common pattern for read-heavy workloads."},
+      {"term": "Write-Through", "def": "Writes update both cache and database synchronously, ensuring consistency at the cost of write latency."},
+      {"term": "Write-Behind (Write-Back)", "def": "Writes update the cache immediately and asynchronously flush to the database, trading consistency for write performance."},
+      {"term": "Cache Invalidation", "def": "Removing or updating cached data when the underlying source changes. 'The two hard problems in CS: cache invalidation and naming things.'"},
+      {"term": "Query Plan Cache", "def": "The database engine caches parsed and optimized query execution plans, separate from result caching."},
+      {"term": "Materialized View", "def": "A database-level cache: a precomputed query result stored as a table, periodically refreshed."}
+    ]) }}
+  </div>
+</details>
 {% endblock %}

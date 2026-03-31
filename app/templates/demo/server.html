@@ -1,42 +1,121 @@
 {% extends "base.html" %}
+{% from "components/edu_macros.html" import flow_diagram, pros_cons, use_cases, key_terms, code_inspector, demo_result, cache_key_inspector %}
+
+{% block page_title %}Server / Redis Cache{% endblock %}
 
 {% block content %}
-  <h2>Server cache demo</h2>
+<h2>Server / Redis Cache</h2>
 
-  <div class="controls">
-    <div class="toggle">
-      <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="Server-side cache stored in Redis (simulated when no Redis present)">(?)</span>
+<!-- What is it? (open) -->
+<details open>
+  <summary>What is Server-Side Caching?</summary>
+  <div class="details-body">
+    <p>
+      Server-side caching stores computed results in a fast key-value store (like Redis or Memcached)
+      that sits between your application and its data sources. When a request arrives, the server
+      checks the cache first. If the data is there (a <strong>HIT</strong>), it skips the expensive
+      computation or database query. If not (a <strong>MISS</strong>), it fetches the data, stores a
+      copy in the cache for next time, and returns it.
+    </p>
+    <p>
+      Redis is the most popular server-side cache. It runs as a separate process, supports multiple
+      data structures, and can be shared across multiple application instances &mdash; making it ideal
+      for horizontally scaled deployments.
+    </p>
+  </div>
+</details>
+
+<!-- How it works (open) -->
+<details open>
+  <summary>How It Works</summary>
+  <div class="details-body">
+    <p>The request flows through the server cache layer before reaching the origin data source:</p>
+    {{ flow_diagram(["Client Request", "App Server", "Redis Cache", "Origin / DB"], "Redis Cache") }}
+    <ol>
+      <li><strong>Check cache:</strong> The app calls <code>cache.get(key)</code> &mdash; Redis looks up the key in memory.</li>
+      <li><strong>HIT path:</strong> If found and not expired, Redis returns the serialized value. The app deserializes and responds immediately.</li>
+      <li><strong>MISS path:</strong> If not found, the app fetches from the origin (database, API, computation), serializes the result, and calls <code>cache.set(key, value, ttl)</code>.</li>
+      <li><strong>TTL expiry:</strong> After the TTL (time-to-live) elapses, Redis automatically deletes the key, ensuring stale data is eventually refreshed.</li>
+    </ol>
+  </div>
+</details>
+
+<!-- Interactive demo (open) -->
+<details open>
+  <summary>Interactive Demo</summary>
+  <div class="details-body">
+    <div class="demo-panel">
+      {{ demo_result(cache_result) }}
+      {{ cache_key_inspector("demo:server:time") }}
+      <h4>Payload</h4>
+      <pre>{{ cache_result.value }}</pre>
+      <p style="font-size:0.85rem; color:#64748b;">
+        Refresh the page to see a <strong>HIT</strong> on the second request. The value is stored in Redis (or a simulated in-memory fallback) with a 300-second TTL.
+      </p>
     </div>
-    <div>
-      <button onclick="toggleCode('server-code')">Show me the code</button>
-    </div>
   </div>
+</details>
 
-  {% if cache_result.hit %}
-    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
-  {% else %}
-    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
-  {% endif %}
-
-  <h3>Payload</h3>
-  <pre>{{ cache_result.value }}</pre>
-
-  <div class="inspector">
-    <strong>Cache key:</strong> demo:server:time
+<!-- Pros & cons (collapsed) -->
+<details>
+  <summary>Pros &amp; Cons</summary>
+  <div class="details-body">
+    {{ pros_cons(
+      pros=[
+        "Shared across multiple app instances (horizontal scaling)",
+        "Survives app restarts (data persists in Redis)",
+        "Rich data structures: strings, hashes, lists, sorted sets",
+        "Built-in TTL for automatic expiration",
+        "Atomic operations prevent race conditions"
+      ],
+      cons=[
+        "Network round-trip adds latency vs. in-process cache",
+        "Extra infrastructure to deploy and manage",
+        "Serialization/deserialization overhead (JSON, msgpack)",
+        "Cache stampede risk when popular keys expire simultaneously",
+        "Memory cost grows with dataset size"
+      ]
+    ) }}
   </div>
+</details>
 
-  <div id="server-code" class="code-box code-panel">
-<pre>{% raw %}# app/routers/server_demo.py (excerpt)
-key = "demo:server:time"
-try:
-    r = await cache.get(key)
-except Exception:
-    r = CacheResult(value=None, hit=False, latency_ms=0.0)
-if not r.hit:
-    await asyncio.sleep(0.01)
-    payload = {"time": asyncio.get_event_loop().time()}
-    await cache.set(key, payload)
-{% endraw %}</pre>
+<!-- Use cases (collapsed) -->
+<details>
+  <summary>Real-World Use Cases</summary>
+  <div class="details-body">
+    {{ use_cases([
+      {"title": "Session Storage", "desc": "Store user sessions in Redis for fast, shared access across load-balanced servers."},
+      {"title": "Rate Limiting", "desc": "Track request counts per API key with TTL-based expiry for sliding window rate limits."},
+      {"title": "Page Fragment Caching", "desc": "Cache rendered HTML fragments (navigation, sidebars) to avoid re-rendering on every request."},
+      {"title": "API Response Caching", "desc": "Cache expensive API aggregations (dashboards, reports) with short TTLs for near-real-time data."}
+    ]) }}
   </div>
+</details>
+
+<!-- Code inspector (collapsed) -->
+<details>
+  <summary>Code Inspector</summary>
+  <div class="details-body">
+    {{ code_inspector("server-inspector", [
+      {"label": "Router", "code": "# app/routers/server_demo.py\nkey = \"demo:server:time\"\n\ntry:\n    r: CacheResult = await cache.get(key)\nexcept Exception:\n    r = CacheResult(value=None, hit=False, latency_ms=0.0)\n\nif not r.hit:\n    # Simulate slow origin fetch\n    await asyncio.sleep(0.01)\n    payload = {\"time\": asyncio.get_event_loop().time()}\n    await cache.set(key, payload)\n    r = CacheResult(value=payload, hit=False, latency_ms=r.latency_ms)"},
+      {"label": "Cache Implementation", "code": "# app/cache/server_cache.py\nclass RedisServerCache(AsyncCache[Any]):\n    async def get(self, key: str) -> CacheResult[Any]:\n        start = time.perf_counter()\n        raw = await self._redis.get(key)\n        latency_ms = (time.perf_counter() - start) * 1000.0\n        if raw is None:\n            return CacheResult(value=None, hit=False, latency_ms=latency_ms)\n        value = json.loads(raw)\n        return CacheResult(value=value, hit=True, latency_ms=latency_ms)\n\n    async def set(self, key: str, value: Any, ttl: int | None = None) -> None:\n        raw = json.dumps(value)\n        await self._redis.set(key, raw, ex=ttl or self._default_ttl)"},
+      {"label": "Dependency Injection", "code": "# app/deps.py\nasync def get_cache(redis=Depends(get_redis)):\n    cache = RedisServerCache(redis=redis, default_ttl=300)\n    yield cache"}
+    ]) }}
+  </div>
+</details>
+
+<!-- Key terms (collapsed) -->
+<details>
+  <summary>Key Concepts &amp; Terminology</summary>
+  <div class="details-body">
+    {{ key_terms([
+      {"term": "TTL (Time-to-Live)", "def": "The number of seconds a cached value remains valid before Redis automatically deletes it."},
+      {"term": "Serialization", "def": "Converting Python objects to a string format (JSON, msgpack) for storage in Redis, and back again on retrieval."},
+      {"term": "Cache Stampede", "def": "When a popular cache key expires and many requests simultaneously try to rebuild it, overwhelming the origin. Mitigated with locking or staggered TTLs."},
+      {"term": "Cache-Aside Pattern", "def": "The application checks the cache, and on a miss, fetches from origin and populates the cache. The cache has no direct connection to the data source."},
+      {"term": "Write-Through", "def": "Writes go to both cache and origin simultaneously, ensuring consistency but adding write latency."},
+      {"term": "Eviction Policy", "def": "The strategy Redis uses to remove keys when memory is full (e.g., LRU, LFU, random)."}
+    ]) }}
+  </div>
+</details>
 {% endblock %}

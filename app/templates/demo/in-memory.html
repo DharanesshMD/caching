@@ -1,35 +1,121 @@
 {% extends "base.html" %}
+{% from "components/edu_macros.html" import flow_diagram, pros_cons, use_cases, key_terms, code_inspector, demo_result, cache_key_inspector %}
+
+{% block page_title %}In-Memory Cache{% endblock %}
 
 {% block content %}
-  <h2>In-memory cache demo</h2>
+<h2>In-Memory Cache</h2>
 
-  <div class="controls">
-    <div class="toggle">
-      <button class="cache-toggle" onclick="toggleCache(this)" data-state="on">Cache: ON</button>
-      <span class="tooltip" title="In-process memory cache with TTL">(?)</span>
+<!-- ── What is it? (open) ── -->
+<details open>
+  <summary>What is In-Memory Caching?</summary>
+  <div class="details-body">
+    <p>
+      In-memory caching stores data directly in the application process's memory (RAM). Unlike Redis
+      or Memcached which run as separate services, an in-memory cache lives inside your application
+      &mdash; typically as a Python dictionary with expiration logic.
+    </p>
+    <p>
+      This is the <strong>fastest server-side cache layer</strong> because there is zero network
+      overhead. Data is accessed via direct memory lookups, measured in <em>microseconds</em> rather
+      than milliseconds. The trade-off is that the cache is local to each process: it can't be shared
+      across multiple application instances, and it's lost when the process restarts.
+    </p>
+  </div>
+</details>
+
+<!-- ── How it works (open) ── -->
+<details open>
+  <summary>How It Works</summary>
+  <div class="details-body">
+    <p>In-memory cache is the closest layer to your application code:</p>
+    {{ flow_diagram(["Application Code", "In-Memory Cache (dict)", "Redis / External Cache", "Database / Origin"], "In-Memory Cache (dict)") }}
+    <ol>
+      <li><strong>Lookup:</strong> The app checks an in-process dictionary for the key. This is a hash table lookup &mdash; O(1) average.</li>
+      <li><strong>HIT:</strong> Value is returned immediately from RAM. No serialization, no network.</li>
+      <li><strong>MISS:</strong> Falls through to the next cache layer (Redis) or origin (database).</li>
+      <li><strong>TTL & cleanup:</strong> Each entry has an <code>expires_at</code> timestamp. Expired entries are lazily cleaned up on access.</li>
+      <li><strong>Eviction:</strong> When memory is constrained, an eviction policy (LRU, LFU) removes the least useful entries.</li>
+    </ol>
+  </div>
+</details>
+
+<!-- ── Interactive demo (open) ── -->
+<details open>
+  <summary>Interactive Demo</summary>
+  <div class="details-body">
+    <div class="demo-panel">
+      {{ demo_result(cache_result) }}
+      {{ cache_key_inspector("demo:memory:time") }}
+      <h4>Payload</h4>
+      <pre>{{ cache_result.value }}</pre>
+      <p style="font-size:0.85rem; color:#64748b;">
+        <strong>Note:</strong> This demo creates a new InMemoryCache instance per request (via dependency injection), so you'll typically see a MISS. In production, a module-level singleton would persist across requests within the same process.
+      </p>
     </div>
-    <div>
-      <button onclick="toggleCode('mem-code')">Show me the code</button>
-    </div>
   </div>
+</details>
 
-  {% if cache_result.hit %}
-    <span class="badge badge-hit">✓ CACHE HIT — {{ cache_result.latency_ms|round(2) }}ms</span>
-  {% else %}
-    <span class="badge badge-miss">✗ CACHE MISS — fetched from origin ({{ cache_result.latency_ms|round(2) }}ms)</span>
-  {% endif %}
-
-  <h3>Payload</h3>
-  <pre>{{ cache_result.value }}</pre>
-
-  <div class="inspector">
-    <strong>Cache key:</strong> demo:memory:time
+<!-- ── Pros & cons (collapsed) ── -->
+<details>
+  <summary>Pros &amp; Cons</summary>
+  <div class="details-body">
+    {{ pros_cons(
+      pros=[
+        "Fastest possible access: direct memory lookup, no network",
+        "No serialization overhead: native Python objects stay in memory",
+        "Zero infrastructure: no external service to deploy or manage",
+        "Simple to implement: essentially a dict with TTL logic",
+        "Great for hot data: frequently accessed, rarely changing values"
+      ],
+      cons=[
+        "Process-local: not shared across multiple app instances",
+        "Lost on restart: no persistence, cache starts cold",
+        "Consumes application memory (RAM) which may be limited",
+        "No built-in replication or failover",
+        "Can lead to inconsistency in multi-instance deployments"
+      ]
+    ) }}
   </div>
+</details>
 
-  <div id="mem-code" class="code-box code-panel">
-<pre>{% raw %}# app/cache/in_memory.py (excerpt)
-# Stores JSON-serialized values with expires_at and cleanup
-await cache.set(key, payload)
-{% endraw %}</pre>
+<!-- ── Use cases (collapsed) ── -->
+<details>
+  <summary>Real-World Use Cases</summary>
+  <div class="details-body">
+    {{ use_cases([
+      {"title": "Configuration & Feature Flags", "desc": "Cache app configuration that rarely changes but is read on every request. Refresh periodically."},
+      {"title": "L1/L2 Tiered Caching", "desc": "Use in-memory as a fast L1 cache in front of Redis (L2). Check L1 first, fall back to L2, then origin."},
+      {"title": "DNS / Service Discovery", "desc": "Cache resolved hostnames and service endpoints to avoid repeated DNS lookups on every outbound request."},
+      {"title": "Computed Values", "desc": "Cache expensive computations (regex compilation, template parsing, math results) that are deterministic."}
+    ]) }}
   </div>
+</details>
+
+<!-- ── Code inspector (collapsed) ── -->
+<details>
+  <summary>Code Inspector</summary>
+  <div class="details-body">
+    {{ code_inspector("mem-inspector", [
+      {"label": "Router", "code": "# app/routers/in_memory_demo.py\nkey = \"demo:memory:time\"\n\ntry:\n    r: CacheResult = await cache.get(key)\nexcept Exception:\n    r = CacheResult(value=None, hit=False, latency_ms=0.0)\n\nif not r.hit:\n    await asyncio.sleep(0.005)\n    payload = {\"time\": asyncio.get_event_loop().time()}\n    await cache.set(key, payload)\n    r = CacheResult(value=payload, hit=False, latency_ms=r.latency_ms)"},
+      {"label": "Cache Implementation", "code": "# app/cache/in_memory.py\nclass InMemoryCache(AsyncCache[Any]):\n    def __init__(self, default_ttl=60):\n        self._store: Dict[str, Dict] = {}\n        self._lock = asyncio.Lock()\n\n    async def _cleanup(self):\n        now = time.time()\n        expired = [k for k, v in self._store.items()\n                   if v[\"expires_at\"] and v[\"expires_at\"] < now]\n        for k in expired:\n            self._store.pop(k, None)\n\n    async def get(self, key):\n        async with self._lock:\n            await self._cleanup()  # Lazy expiration\n            entry = self._store.get(key)\n            if not entry:\n                return CacheResult(value=None, hit=False, ...)\n            value = json.loads(entry[\"value\"])\n            return CacheResult(value=value, hit=True, ...)"},
+      {"label": "LRU Pattern (stdlib)", "code": "# Python's built-in LRU cache (sync only)\nfrom functools import lru_cache\n\n@lru_cache(maxsize=128)\ndef expensive_computation(n):\n    # Only computed once per unique n\n    return sum(i**2 for i in range(n))\n\n# For async code, use a dict + TTL or\n# libraries like cachetools or aiocache"}
+    ]) }}
+  </div>
+</details>
+
+<!-- ── Key terms (collapsed) ── -->
+<details>
+  <summary>Key Concepts &amp; Terminology</summary>
+  <div class="details-body">
+    {{ key_terms([
+      {"term": "Process-Local", "def": "Data stored in the memory of a single OS process. Not shared with other processes or instances of the application."},
+      {"term": "LRU (Least Recently Used)", "def": "An eviction policy that removes the entry that hasn't been accessed for the longest time. Python's functools.lru_cache implements this."},
+      {"term": "Lazy Expiration", "def": "Expired entries are not removed on a timer; instead, they're cleaned up when the cache is accessed. Simpler but may retain stale data briefly."},
+      {"term": "L1/L2 Tiered Caching", "def": "Using in-memory (L1) as a fast first layer and Redis (L2) as a shared second layer. Similar to CPU cache hierarchy."},
+      {"term": "Cache Warming", "def": "Pre-populating the cache at startup with expected hot data to avoid a cold-start performance dip."},
+      {"term": "Eviction Policy", "def": "The algorithm for choosing which entries to remove when the cache is full: LRU, LFU (least frequently used), FIFO, random, etc."}
+    ]) }}
+  </div>
+</details>
 {% endblock %}
